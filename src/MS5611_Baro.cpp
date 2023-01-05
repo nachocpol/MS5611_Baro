@@ -2,6 +2,7 @@
 
 #include "Arduino.h"
 #include "Wire.h"
+#include "SPI.h"
 
 static int32_t ClampInt32(int32_t value, int32_t min, int32_t max)
 {
@@ -16,6 +17,7 @@ static int64_t ClampInt64(int64_t value, int64_t min, int64_t max)
 }
 
 MS5611::MS5611()
+    : m_Initialized(false)
 {
 
 }
@@ -25,9 +27,10 @@ MS5611::~MS5611()
 
 }
 
-void MS5611::Initialize(Mode mode)
+bool MS5611::Initialize(const Configuration& config)
 {
-    m_I2CAddress = 0x76; // TODO: Can also be 0x77
+    m_Config = config;
+    m_I2CAddress = (uint8_t)0x76 | (uint8_t)(1 - m_Config.m_PSStatus);
 
     Reset();
 
@@ -35,15 +38,7 @@ void MS5611::Initialize(Mode mode)
     for(uint8_t i = 0; i < 8; ++i)
     {
         const uint8_t promAddr = 0xA0 | (uint8_t)(i << 1);
-        
-        Wire.beginTransmission(m_I2CAddress);
-        Wire.write(promAddr);
-        Wire.endTransmission(1);
-
-        Wire.requestFrom(m_I2CAddress, (uint8_t)2);
-        uint8_t data0 = (uint8_t)Wire.read(); 
-        uint8_t data1 = (uint8_t)Wire.read();
-        m_PROMData.m_RawData[i] = (uint16_t)(data0 << 8) | (uint16_t)data1;
+        m_PROMData.m_RawData[i] = ReadPROM(promAddr);
     }
 
 #if MS5611_DEBUG
@@ -58,10 +53,21 @@ void MS5611::Initialize(Mode mode)
 #endif
 
     //Test();
+
+    m_Initialized = true;
+
+    return true;
 }
 
 void MS5611::ReadSensor(float& temperature, float& pressure, Sampling temperatureSampling, Sampling pressureSampling)
 {
+    if(!m_Initialized)
+    {
+        temperature = -1.0f;
+        pressure = -1.0f;
+        return;
+    }
+
 #if 1
     const uint16_t C1 = m_PROMData.m_Data.m_C1;
     const uint16_t C2 = m_PROMData.m_Data.m_C2;
@@ -122,7 +128,7 @@ void MS5611::ReadSensor(float& temperature, float& pressure, Sampling temperatur
 
 void MS5611::Reset()
 {
-    if(m_Mode == I2C)
+    if(m_Config.m_Mode == I2C)
     {
         Wire.beginTransmission(m_I2CAddress);
         Wire.write(RESET);
@@ -133,6 +139,30 @@ void MS5611::Reset()
     {
 
     }
+}
+
+uint16_t MS5611::ReadPROM(uint8_t address)
+{
+    uint16_t value = 0;
+
+    if(m_Config.m_Mode == I2C)
+    {
+        Wire.beginTransmission(m_I2CAddress);
+        Wire.write(address);
+        Wire.endTransmission(1);
+
+        Wire.requestFrom(m_I2CAddress, (uint8_t)2);
+        uint8_t data0 = (uint8_t)Wire.read(); 
+        uint8_t data1 = (uint8_t)Wire.read();
+
+        value = (uint16_t)(data0 << 8) | (uint16_t)data1;
+    }
+    else
+    {
+
+    }
+
+    return value;
 }
 
 uint8_t MS5611::EncodeConvertCommand(bool isTemperature, Sampling rate)

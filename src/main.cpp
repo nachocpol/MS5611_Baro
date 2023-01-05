@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include "Wire.h"
+#include "SPI.h"
 
 #include "MS5611_Baro.h"
 
@@ -13,8 +14,13 @@ void setup()
     Serial.println("");
 
     Wire.begin();
+    SPI.begin();
 
-    g_Barometer.Initialize(MS5611::Mode::I2C);   
+    MS5611::Configuration baroConfig;
+    baroConfig.m_ChipSelectPin = 0xFF;
+    baroConfig.m_Mode = MS5611::Mode::I2C;
+    baroConfig.m_PSStatus = 1;
+    g_Barometer.Initialize(baroConfig);   
 }
 
 void loop()

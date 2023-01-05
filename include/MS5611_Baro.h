@@ -14,6 +14,13 @@ public:
         SPI
     };
 
+    struct Configuration
+    {
+        Mode m_Mode;
+        uint8_t m_PSStatus : 1;     // 1 = HIGH  0 = LOW (Only for I2C)
+        uint8_t m_ChipSelectPin;    // Pin used for CS (Only for SPI)
+    };
+
     enum Sampling : uint8_t
     {
         R_256,
@@ -26,7 +33,8 @@ public:
     MS5611(const MS5611& other) = delete;
     ~MS5611();
 
-    void Initialize(Mode mode);
+    // Must be called before reading sensor data.
+    bool Initialize(const Configuration& config);
 
     // Reads the raw sensor data and returns the temperature (ºC) and corrected pressure (mBar)
     void ReadSensor(float& temperature, float& pressure, Sampling temperatureSampling = R_1024, Sampling pressureSampling = R_1024);
@@ -39,6 +47,8 @@ private:
     };
 
     void Reset();
+
+    uint16_t ReadPROM(uint8_t address);
 
     uint8_t EncodeConvertCommand(bool isTemperature, Sampling rate);
 
@@ -73,8 +83,9 @@ private:
         } m_Data;
         uint16_t m_RawData[8];
     }m_PROMData;
-    Mode m_Mode;
     uint8_t m_I2CAddress;
+    Configuration m_Config;
+    bool m_Initialized;
 };
 
 #endif
