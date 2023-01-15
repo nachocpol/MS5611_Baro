@@ -10,14 +10,14 @@ class MS5611
 public:
     enum Mode : uint8_t
     {
-        I2C,
-        SPI
+        M_I2C,
+        M_SPI
     };
 
     struct Configuration
     {
         Mode m_Mode;
-        uint8_t m_PSStatus : 1;     // 1 = HIGH  0 = LOW (Only for I2C)
+        uint8_t m_CSBStatus : 1;    // 1 = HIGH  0 = LOW (Only for I2C, defines the address to use)
         uint8_t m_ChipSelectPin;    // Pin used for CS (Only for SPI)
     };
 
@@ -49,6 +49,10 @@ private:
     void Reset();
 
     uint16_t ReadPROM(uint8_t address);
+
+    void SendCommand(uint8_t command);
+
+    uint32_t ReadADC();
 
     uint8_t EncodeConvertCommand(bool isTemperature, Sampling rate);
 

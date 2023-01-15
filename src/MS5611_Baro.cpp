@@ -30,7 +30,13 @@ MS5611::~MS5611()
 bool MS5611::Initialize(const Configuration& config)
 {
     m_Config = config;
-    m_I2CAddress = (uint8_t)0x76 | (uint8_t)(1 - m_Config.m_PSStatus);
+    m_I2CAddress = (uint8_t)0x76 | (uint8_t)(1 - m_Config.m_CSBStatus);
+ 
+    // Set chip select as output.
+    if(m_Config.m_Mode == M_SPI)
+    {
+        pinMode(m_Config.m_ChipSelectPin, OUTPUT);
+    }
 
     Reset();
 
@@ -128,24 +134,15 @@ void MS5611::ReadSensor(float& temperature, float& pressure, Sampling temperatur
 
 void MS5611::Reset()
 {
-    if(m_Config.m_Mode == I2C)
-    {
-        Wire.beginTransmission(m_I2CAddress);
-        Wire.write(RESET);
-        Wire.endTransmission(1);
-        delay(10);
-    }
-    else
-    {
-
-    }
+    SendCommand(RESET);
+    delay(10);
 }
 
 uint16_t MS5611::ReadPROM(uint8_t address)
 {
     uint16_t value = 0;
 
-    if(m_Config.m_Mode == I2C)
+    if(m_Config.m_Mode == M_I2C)
     {
         Wire.beginTransmission(m_I2CAddress);
         Wire.write(address);
@@ -159,10 +156,58 @@ uint16_t MS5611::ReadPROM(uint8_t address)
     }
     else
     {
-
+        digitalWrite(m_Config.m_ChipSelectPin, LOW);
+        SPI.transfer(address);
+        uint8_t data0 = SPI.transfer(0);
+        uint8_t data1 = SPI.transfer(0);
+        value = (uint16_t)(data0 << 8) | (uint16_t)data1;
+        digitalWrite(m_Config.m_ChipSelectPin, HIGH);
     }
 
     return value;
+}
+
+void MS5611::SendCommand(uint8_t command)
+{
+    if(m_Config.m_Mode == M_I2C)
+    {
+        Wire.beginTransmission(m_I2CAddress);
+        Wire.write(command);
+        Wire.endTransmission();
+    }
+    else
+    {
+        digitalWrite(m_Config.m_ChipSelectPin, LOW);
+        SPI.transfer(command);
+        digitalWrite(m_Config.m_ChipSelectPin, HIGH);
+    }
+}
+
+uint32_t MS5611::ReadADC()
+{
+    // ADC_READ command is handled a bit different as for SPI we expect to perform
+    // the read while the chip is selected.
+
+    uint32_t adcValue = 0;
+    if(m_Config.m_Mode == M_I2C)
+    {
+        SendCommand(ADC_READ);
+
+        Wire.requestFrom(m_I2CAddress, (uint8_t)3);
+        adcValue |= (uint32_t)Wire.read() << 16;
+        adcValue |= (uint32_t)Wire.read() << 8;
+        adcValue |= (uint32_t)Wire.read() << 0;
+    }
+    else
+    {
+        digitalWrite(m_Config.m_ChipSelectPin, LOW);
+        SPI.transfer(ADC_READ);
+        adcValue |= (uint32_t)SPI.transfer(0) << 16;
+        adcValue |= (uint32_t)SPI.transfer(0) << 8;
+        adcValue |= (uint32_t)SPI.transfer(0) << 0;
+        digitalWrite(m_Config.m_ChipSelectPin, HIGH);
+    }
+    return adcValue;
 }
 
 uint8_t MS5611::EncodeConvertCommand(bool isTemperature, Sampling rate)
@@ -175,27 +220,14 @@ uint8_t MS5611::EncodeConvertCommand(bool isTemperature, Sampling rate)
 
 uint32_t MS5611::GetRawValue(bool isTemperature, Sampling rate)
 {
-    uint32_t rawValue = 0;
-    uint8_t command = 0xFF;
-    
     // Send conversion command
-    command = EncodeConvertCommand(isTemperature, rate);
-    Wire.beginTransmission(m_I2CAddress);
-    Wire.write(command);
-    Wire.endTransmission();
+    const uint8_t convertCommand = EncodeConvertCommand(isTemperature, rate);
+    SendCommand(convertCommand);
 
     delay(10); // TO-DO: Is this the best we can do? Could we have an active check instead?
 
-    // Prepare data to be read
-    Wire.beginTransmission(m_I2CAddress);
-    Wire.write(ADC_READ);
-    Wire.endTransmission();
-
     // Read it
-    Wire.requestFrom(m_I2CAddress, (uint8_t)3);
-    rawValue |= (uint32_t)Wire.read() << 16;
-    rawValue |= (uint32_t)Wire.read() << 8;
-    rawValue |= (uint32_t)Wire.read() << 0;
+    uint32_t rawValue = ReadADC();
 
     return rawValue;
 }
